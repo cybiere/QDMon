@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import subprocess
+import smtplib
 import requests
 import json
 from pathlib import Path
@@ -8,14 +9,18 @@ from pathlib import Path
 confPath = Path("config.json")
 if not confPath.is_file():
     config={
-            "user":"sshUser",
+            "sshUser":"sshUser",
             "rsaKey":"/home/user/.ssh/id_rsa",
+            "notifyMail":"user.to.notified@example.com",
+            "smtpUser":"smtp.user@example.com",
+            "smtpPass":"hunter2",
+            "smtpServer":"smtp.example.com",
             "servers":[
                 {
                     "name":"ServerName",
                     "ip":"192.168.0.1",
                     "categories":["web"],
-                    "user":"sshUser",
+                    "sshUser":"sshUser",
                     "rsaKey":"/home/user/.ssh/id_rsa",
                 }
                 ]
@@ -31,51 +36,70 @@ with open('config.json','r') as confFile:
 def pingCheck(server):
     res = subprocess.run(["ping","-c","1",server['ip']],stdout=subprocess.DEVNULL)
     if res.returncode != 0:
-        print("[ERROR] Couldn't ping "+server['name'])
-        return False
+        return (False,"Server didn't respond to ping")
     else:
-        print("[OK] "+server['name']+" responds to ping")
-        return True
+        return (True,"Server responded to ping")
 
 def fsCheck(server):
-    user = server['user'] if 'user' in server else conf['user']
+    user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
     key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
     res = subprocess.run(["ssh","-i",key,user+'@'+server['ip'],'touch fic && rm fic'])
     if res.returncode != 0:
-        print("[ERROR] FS write error, return code :",res.returncode)
-        return False
+        return (False,"FS write error, return code :"+str(res.returncode))
     else:
-        print("[OK] FS write ok")
-        return True
+        return (True,"FS write ok")
 
 def httpCheck(server):
     try:
         r = requests.get("http://"+server['ip']+"/")
     except:
-        print("[ERROR] HTTP request to "+server['name']+" failed")
-        return False
+        return (False,"HTTP request failed")
     else:
-        print("[OK] HTTP returned code :",r.status_code)
-        return True
+        return (True,"HTTP returned code : "+str(r.status_code))
 
 checks={
         "basic":[fsCheck],
         "web":[httpCheck]
         }
 
-
+errs=[]
 for server in conf['servers']:
     cats = server['categories'] if 'categories' in server else []
-    print("Checking "+server['name']+" ("+server['ip']+")")
-    if pingCheck(server) == False:
-        exit()
+    (success,message) = pingCheck(server)
+    if success == False:
+        errs.append((server['name'],message))
+        continue
     cats.insert(0,"basic")
 
     for cat in cats:
         if cat in checks and checks[cat]:
             for check in checks[cat]:
-                check(server)
+                (success,message)=check(server)
+                if not success:
+                    errs.append((server['name'],message))
         else:
-            print("No checks for "+cat+" category")
+            errs.append((server['name'],"No checks for "+cat+" category"))
 
+if errs:
+    subject = '[QDMon] Monitoring alert !'
+    body = "Errors happened during latest monitoring pass :\n"
+    for srv,msg in errs:
+        body = body+"\n["+srv+"] "+msg
+    
+    email_text = """\
+From: %s
+To: %s
+Subject: %s
+
+%s
+""" % (conf["smtpUser"],conf["notifyMail"], subject, body)
+
+    try:
+        server = smtplib.SMTP_SSL(conf['smtpServer'], 465)
+        server.ehlo()
+        server.login(conf["smtpUser"], conf['smtpPass'])
+        server.sendmail(conf["smtpUser"], conf["notifyMail"], email_text)
+        server.close()
+    except Exception as e:
+        print('Email notification failed :',str(e))
 
