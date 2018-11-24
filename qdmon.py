@@ -40,6 +40,9 @@ if not confPath.is_file():
 with open('config.json','r') as confFile:
     conf = json.load(confFile)
 
+if verbose:
+    print("QDMon starting")
+
 def pingCheck(server):
     res = subprocess.run(["ping","-c","1",server['ip']],stdout=subprocess.DEVNULL)
     if res.returncode != 0:
@@ -77,7 +80,26 @@ def httpCheck(server):
         return (True,"HTTP returned code : "+str(r.status_code))
 
 def smtpCheck(server):
-    pass
+    try:
+        sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        sock.connect((server['ip'],int(server['smtpPort'])))
+        sock.settimeout(5)
+        reply = sock.recv(1024).decode("utf-8")
+        if "SMTP" in reply:
+            if verbose :
+                print("[OK] SMTP server replied "+reply[:-2])
+            return (True,"SMTP server replied "+reply[:-2])
+        else:
+            if verbose :
+                print("No SMTP in "+reply)
+    except:
+        if verbose :
+            print("SMTP connect failed")
+    if verbose :
+        print("[ERR] No SMTP reply")
+    return (False,"No SMTP reply")
+
+    print
 
 checks={
         "basic":[fsCheck],
