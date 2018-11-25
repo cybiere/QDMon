@@ -10,9 +10,21 @@ import socket
 import ssl
 
 verbose=False
+output=False
+outFileName=""
+
 for arg in sys.argv:
     if arg == "-v":
         verbose=True
+    elif arg == "-o":
+        output=True
+        continue
+    if output and outFileName == "":
+        outFileName = arg
+
+if output and outFileName == "":
+    print("Error : no output file specified, ignoring output")
+    output=False
 
 confPath = Path("config.json")
 if not confPath.is_file():
@@ -147,11 +159,17 @@ checks={
         }
 
 errs=[]
+log={}
 for server in conf['servers']:
     if verbose :
         print(">",server['name'])
+    log[server['name']] = {}
     cats = server['categories'] if 'categories' in server else []
     (success,message) = pingCheck(server)
+    log[server['name']][pingCheck.__name__[:-5]] = {
+            "success":"OK" if success else "KO",
+            "msg":message
+            }
     if success == False:
         errs.append((server['name'],message))
         continue
@@ -161,10 +179,19 @@ for server in conf['servers']:
         if cat in checks and checks[cat]:
             for check in checks[cat]:
                 (success,message)=check(server)
+                log[server['name']][check.__name__[:-5]] = {
+                        "success":"OK" if success else "KO",
+                        "msg":message
+                        }
                 if not success:
                     errs.append((server['name'],message))
         else:
             errs.append((server['name'],"No checks for "+cat+" category"))
+
+if output:
+    with open(outFileName,'w') as outfile:
+        json.dump(log,outfile,indent="\t")
+    
 
 if errs:
     if verbose :
