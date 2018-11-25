@@ -70,7 +70,7 @@ def fsCheck(server):
 
 def httpCheck(server):
     try:
-        r = requests.get("http://"+server['ip']+"/")
+        r = requests.get("http://"+server['ip']+"/", allow_redirects=False, timeout=3)
     except:
         if verbose :
             print("[ERR] HTTP request failed")
