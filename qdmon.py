@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import sys
 import socket
+import ssl
 
 verbose=False
 for arg in sys.argv:
@@ -19,9 +20,9 @@ if not confPath.is_file():
             "sshUser":"sshUser",
             "rsaKey":"/home/user/.ssh/id_rsa",
             "notifyMail":"user.to.notified@example.com",
-            "smtpUser":"smtp.user@example.com",
-            "smtpPass":"hunter2",
-            "smtpServer":"smtp.example.com",
+            "notifyUser":"smtp.user@example.com",
+            "notifyPass":"hunter2",
+            "notifyServer":"smtp.example.com",
             "servers":[
                 {
                     "name":"ServerName",
@@ -80,14 +81,23 @@ def httpCheck(server):
         return (True,"HTTP returned code : "+str(r.status_code))
 
 def smtpCheck(server):
+    context = ssl.create_default_context()
+    context.check_hostname = False
     try:
-        sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        sock.connect((server['ip'],int(server['smtpPort'])))
-        sock.settimeout(5)
-        reply = sock.recv(1024).decode("utf-8")
+        sock = socket.create_connection((server['ip'],int(server['smtpPort'])))
+        if server["smtpTLS"] == "True":
+            ssock = context.wrap_socket(sock)
+            lsock = ssock
+        else:
+            lsock = sock
+        lsock.settimeout(5)
+        reply = lsock.recv(1024).decode("utf-8")
         if "SMTP" in reply:
             if verbose :
                 print("[OK] SMTP server replied "+reply[:-2])
+            if server["smtpTLS"] == "True":
+                ssock.close()
+            sock.close()
             return (True,"SMTP server replied "+reply[:-2])
         else:
             if verbose :
@@ -95,16 +105,45 @@ def smtpCheck(server):
     except:
         if verbose :
             print("SMTP connect failed")
+    sock.close()
     if verbose :
         print("[ERR] No SMTP reply")
     return (False,"No SMTP reply")
 
-    print
+def imapCheck(server):
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    try:
+        sock = socket.create_connection((server['ip'],int(server['imapPort'])))
+        if server["imapTLS"] == "True":
+            ssock = context.wrap_socket(sock)
+            lsock = ssock
+        else:
+            lsock = sock
+        lsock.settimeout(5)
+        reply = lsock.recv(1024).decode("utf-8")
+        if "IMAP" in reply:
+            if verbose :
+                print("[OK] IMAP server replied "+reply[:-2])
+            if server["imapTLS"] == "True":
+                ssock.close()
+            sock.close()
+            return (True,"IMAP server replied "+reply[:-2])
+        else:
+            if verbose :
+                print("No IMAP in "+reply)
+    except:
+        if verbose :
+            print("IMAP connect failed")
+    sock.close()
+    if verbose :
+        print("[ERR] No IMAP reply")
+    return (False,"No IMAP reply")
 
 checks={
         "basic":[fsCheck],
         "web":[httpCheck],
-        "mail":[smtpCheck]
+        "mail":[smtpCheck,imapCheck]
         }
 
 errs=[]
@@ -141,13 +180,13 @@ To: %s
 Subject: %s
 
 %s
-""" % (conf["smtpUser"],conf["notifyMail"], subject, body)
+""" % (conf["notifyUser"],conf["notifyMail"], subject, body)
 
     try:
-        server = smtplib.SMTP_SSL(conf['smtpServer'], 465)
+        server = smtplib.SMTP_SSL(conf['notifyServer'], 465)
         server.ehlo()
-        server.login(conf["smtpUser"], conf['smtpPass'])
-        server.sendmail(conf["smtpUser"], conf["notifyMail"], email_text)
+        server.login(conf["notifyUser"], conf['notifyPass'])
+        server.sendmail(conf["notifyUser"], conf["notifyMail"], email_text)
         server.close()
     except Exception as e:
         print('Email notification failed :',str(e))
