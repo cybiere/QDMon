@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import socket
 import ssl
+import sqlite3
 
 verbose=False
 output=False
@@ -36,8 +37,7 @@ if not confPath.is_file():
             "notifyPass":"hunter2",
             "notifyServer":"smtp.example.com",
             "historyLen":"3",
-            "servers":
-            "historyLen":"3",[
+            "servers":[
                 {
                     "name":"ServerName",
                     "ip":"192.168.0.1",
@@ -59,6 +59,33 @@ if not confPath.is_file():
 
 with open('config.json','r') as confFile:
     conf = json.load(confFile)
+
+
+#Open and create DB if first run
+dbConn = sqlite3.connect('qdmon.db')
+c = dbConn.cursor()
+c.execute("CREATE TABLE IF NOT EXISTS servers (name TEXT PRIMARY KEY, cpuLoad TEXT);")
+c.execute("CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, message TEXT, nextWarn INTEGER, ack INTEGER DEFAULT 0, FOREIGN KEY(server) REFERENCES servers(name));")
+dbConn.commit()
+dbServers = []
+for row in c.execute('SELECT name FROM servers'):
+    dbServers.append(row)
+
+confServers = []
+for server in conf["servers"]:
+    confServers.append(server['name'])
+
+#Purge servers removed from config
+for server in dbServers:
+    if server not in confServers:
+        c.execute('DELETE FROM alerts WHERE server=?',(server,))
+        c.execute('DELETE FROM servers WHERE name=?',(server,))
+
+#Insert servers added from config
+for server in confServers:
+    if server not in dbServers:
+        c.execute('INSERT INTO servers (name,cpuLoad) VALUES (?,"0")',(server,))
+dbConn.commit()
 
 if verbose:
     print("QDMon starting")
@@ -230,7 +257,6 @@ if statusPath.is_file():
 else:
     status = {}
 
-#TODO status len as conf param
 maxLen = int(conf['historyLen']) if 'historyLen' in conf else 10
 keys = list(status.keys())
 if len(keys) == maxLen:
@@ -269,6 +295,6 @@ Subject: %s
         server.close()
     except Exception as e:
         print('Email notification failed :',str(e))
-
+dbConn.close()
 if verbose :
     print("QDMon over")
