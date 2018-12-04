@@ -39,9 +39,14 @@ if not confPath.is_file():
                 {
                     "name":"ServerName",
                     "ip":"192.168.0.1",
-                    "categories":["web"],
+                    "categories":["web","mail"],
                     "sshUser":"sshUser",
-                    "rsaKey":"/home/user/.ssh/id_rsa",
+                    "rsaKey":"/home/user/.ssh/id_rs",
+		    "smtpPort":"587",
+		    "smtpTLS":"False",
+		    "imapPort":"993",
+		    "imapTLS":"True",
+		    "httpPort":"80",
                 }
                 ]
             }
@@ -80,9 +85,17 @@ def fsCheck(server):
             print("[OK] FS write ok")
         return (True,"FS write ok")
 
+def cpuLoadCheck(server):
+    user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
+    key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
+    #TODO fetch stdout in var
+    res = subprocess.run(["ssh","-i",key,user+'@'+server['ip'],"grep 'cpu ' /proc/stat | awk '",'{usage=($2+$4)*100/($2+$4+$5)} END {print usage "%"}',"'"])
+    #TODO check val against threshold and return
+
 def httpCheck(server):
+    port = server['httpPort'] if 'httpPort' in server else "80"
     try:
-        r = requests.get("http://"+server['ip']+"/", allow_redirects=False, timeout=3)
+        r = requests.get("http://"+server['ip']+":"+port+"/", allow_redirects=False, timeout=3)
     except:
         if verbose :
             print("[ERR] HTTP request failed")
@@ -93,10 +106,14 @@ def httpCheck(server):
         return (True,"HTTP returned code : "+str(r.status_code))
 
 def smtpCheck(server):
+    if server["smtpTLS"] == "True":
+        port = server['smtpPort'] if 'smtpPort' in server else "465"
+    else:
+        port = server['smtpPort'] if 'smtpPort' in server else "25"
     context = ssl.create_default_context()
     context.check_hostname = False
     try:
-        sock = socket.create_connection((server['ip'],int(server['smtpPort'])))
+        sock = socket.create_connection((server['ip'],int(port)))
         if server["smtpTLS"] == "True":
             ssock = context.wrap_socket(sock)
             lsock = ssock
@@ -123,10 +140,14 @@ def smtpCheck(server):
     return (False,"No SMTP reply")
 
 def imapCheck(server):
+    if server["imapTLS"] == "True":
+        port = server['imapPort'] if 'imapPort' in server else "993"
+    else:
+        port = server['imapPort'] if 'imapPort' in server else "143"
     context = ssl.create_default_context()
     context.check_hostname = False
     try:
-        sock = socket.create_connection((server['ip'],int(server['imapPort'])))
+        sock = socket.create_connection((server['ip'],int(port)))
         if server["imapTLS"] == "True":
             ssock = context.wrap_socket(sock)
             lsock = ssock
