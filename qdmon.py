@@ -22,9 +22,8 @@ for arg in sys.argv:
     if output and outFileName == "":
         outFileName = arg
 
-if output and outFileName == "":
-    print("Error : no output file specified, ignoring output")
-    output=False
+if outFileName == "":
+    outFileName="status.json"
 
 confPath = Path("config.json")
 if not confPath.is_file():
@@ -220,9 +219,8 @@ for server in conf['servers']:
         else:
             errs.append((server['name'],"No checks for "+cat+" category"))
 
-if output:
-    with open(outFileName,'w') as outfile:
-        json.dump(log,outfile,indent="\t")
+with open(outFileName,'w') as outfile:
+    json.dump(log,outfile,indent="\t")
     
 
 if errs:
