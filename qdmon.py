@@ -89,7 +89,18 @@ def cpuLoadCheck(server):
     user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
     key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
     #TODO fetch stdout in var
-    res = subprocess.run(["ssh","-i",key,user+'@'+server['ip'],"grep 'cpu ' /proc/stat | awk '",'{usage=($2+$4)*100/($2+$4+$5)} END {print usage "%"}',"'"])
+    try:
+        cpuLoad = subprocess.check_output(["ssh","-i",key,user+'@'+server['ip'],"grep 'cpu ' /proc/stat | awk '",'{usage=($2+$4)*100/($2+$4+$5)} END {print usage }',"'"])
+        loadInt,loadDec = cpuLoad.decode("utf-8")[:-1].split('.')
+        cpuLoad = ".".join((loadInt,loadDec[:2]))
+        if verbose :
+            print("[OK] CPU Load :"+cpuLoad+"%")
+        return (True,cpuLoad)
+    except subprocess.CalledProcessError as e:
+        if verbose :
+            print("[ERR] CPU Load error :"+e.output)
+        return (False,e.output)
+
     #TODO check val against threshold and return
 
 def httpCheck(server):
@@ -174,7 +185,7 @@ def imapCheck(server):
     return (False,"No IMAP reply")
 
 checks={
-        "basic":[fsCheck],
+        "basic":[fsCheck,cpuLoadCheck],
         "web":[httpCheck],
         "mail":[smtpCheck,imapCheck]
         }
