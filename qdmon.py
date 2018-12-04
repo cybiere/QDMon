@@ -12,31 +12,21 @@ import ssl
 import sqlite3
 
 verbose=False
-output=False
-outFileName=""
 
 for arg in sys.argv:
     if arg == "-v":
         verbose=True
-    elif arg == "-o":
-        output=True
-        continue
-    if output and outFileName == "":
-        outFileName = arg
-
-if outFileName == "":
-    outFileName="status.json"
 
 confPath = Path("config.json")
 if not confPath.is_file():
     config={
             "sshUser":"sshUser",
             "rsaKey":"/home/user/.ssh/id_rsa",
-            "notifyMail":"user.to.notified@example.com",
+            "notifyMail":"user.to.notify@example.com",
             "notifyUser":"smtp.user@example.com",
             "notifyPass":"hunter2",
             "notifyServer":"smtp.example.com",
-            "historyLen":"3",
+            "notifyFreq":"5",
             "servers":[
                 {
                     "name":"ServerName",
@@ -65,11 +55,11 @@ with open('config.json','r') as confFile:
 dbConn = sqlite3.connect('qdmon.db')
 c = dbConn.cursor()
 c.execute("CREATE TABLE IF NOT EXISTS servers (name TEXT PRIMARY KEY, cpuLoad TEXT);")
-c.execute("CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, message TEXT, nextWarn INTEGER, ack INTEGER DEFAULT 0, FOREIGN KEY(server) REFERENCES servers(name));")
+c.execute("CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, checkpoint TEXT, message TEXT, nextWarn INTEGER, ack INTEGER DEFAULT 0, FOREIGN KEY(server) REFERENCES servers(name));")
 dbConn.commit()
 dbServers = []
 for row in c.execute('SELECT name FROM servers'):
-    dbServers.append(row)
+    dbServers.append(row[0])
 
 confServers = []
 for server in conf["servers"]:
@@ -117,7 +107,6 @@ def fsCheck(server):
 def cpuLoadCheck(server):
     user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
     key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
-    #TODO fetch stdout in var
     try:
         cpuLoad = subprocess.check_output(["ssh","-i",key,user+'@'+server['ip'],"grep 'cpu ' /proc/stat | awk '",'{usage=($2+$4)*100/($2+$4+$5)} END {print usage }',"'"])
         loadInt,loadDec = cpuLoad.decode("utf-8")[:-1].split('.')
@@ -219,7 +208,6 @@ checks={
         "mail":[smtpCheck,imapCheck]
         }
 
-errs=[]
 log={}
 for server in conf['servers']:
     if verbose :
@@ -232,7 +220,11 @@ for server in conf['servers']:
             "msg":message
             }
     if success == False:
-        errs.append((server['name'],message))
+        c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],pingCheck.__name__))
+        alert = c.fetchone()
+        if alert == None:
+            c.execute("INSERT INTO alerts (server,checkpoint,message,nextWarn) VALUES (?,?,?,0)",(server['name'],pingCheck.__name__,message))
+        dbConn.commit()
         continue
     cats.insert(0,"basic")
 
@@ -240,43 +232,42 @@ for server in conf['servers']:
         if cat in checks and checks[cat]:
             for check in checks[cat]:
                 (success,message)=check(server)
+                if check.__name__ == "cpuLoadCheck" and success:
+                    c.execute("UPDATE servers SET cpuLoad=? WHERE name=?",(message,server['name']))
+                    dbConn.commit()
                 log[server['name']][check.__name__[:-5]] = {
                         "success":"OK" if success else "KO",
                         "msg":message
                         }
-                if not success:
-                    errs.append((server['name'],message))
-        else:
-            errs.append((server['name'],"No checks for "+cat+" category"))
+                if success:
+                    #TODO remove alerts for given check & server
+                    pass
+                else:
+                    c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],check.__name__))
+                    alert = c.fetchone()
+                    if alert == None:
+                        c.execute("INSERT INTO alerts (server,checkpoint,message,nextWarn) VALUES (?,?,?,0)",(server['name'],check.__name__,message))
+                    dbConn.commit()
 
+errs=[]
+rows = c.execute("SELECT server,message,nextWarn FROM alerts WHERE ack=0")
+lastCount = 10
+for row in rows:
+    errs.append(row)
+    lastCount = row[2];
 
-statusPath = Path(outFileName)
-if statusPath.is_file():
-    with open(outFileName,'r') as outFile:
-        status = json.load(outFile)
+if lastCount > 0:
+    c.execute("UPDATE alerts SET nextWarn=?",(lastCount-1,))
+    dbConn.commit()
 else:
-    status = {}
+    c.execute("UPDATE alerts SET nextWarn=?",(int(conf['notifyFreq'])-1,))
+    dbConn.commit()
 
-maxLen = int(conf['historyLen']) if 'historyLen' in conf else 10
-keys = list(status.keys())
-if len(keys) == maxLen:
-    status.pop(keys[0])
-
-now = datetime.datetime.now()
-status[now.strftime("%Y-%m-%d_%H:%M:%S")] = log
-
-
-
-with open(outFileName,'w') as outFile:
-    json.dump(status,outFile,indent="\t")
-    
-
-if errs:
     if verbose :
         print(len(errs),"error(s) found. Sending email alert.")
     subject = '[QDMon] Monitoring alert !'
     body = "Errors happened during latest monitoring pass :\n"
-    for srv,msg in errs:
+    for srv,msg,nextWarn in errs:
         body = body+"\n["+srv+"] "+msg
     
     email_text = """\
