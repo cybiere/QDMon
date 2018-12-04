@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import subprocess
+import datetime
 import smtplib
 import requests
 import json
@@ -34,7 +35,9 @@ if not confPath.is_file():
             "notifyUser":"smtp.user@example.com",
             "notifyPass":"hunter2",
             "notifyServer":"smtp.example.com",
-            "servers":[
+            "historyLen":"3",
+            "servers":
+            "historyLen":"3",[
                 {
                     "name":"ServerName",
                     "ip":"192.168.0.1",
@@ -219,8 +222,27 @@ for server in conf['servers']:
         else:
             errs.append((server['name'],"No checks for "+cat+" category"))
 
-with open(outFileName,'w') as outfile:
-    json.dump(log,outfile,indent="\t")
+
+statusPath = Path(outFileName)
+if statusPath.is_file():
+    with open(outFileName,'r') as outFile:
+        status = json.load(outFile)
+else:
+    status = {}
+
+#TODO status len as conf param
+maxLen = int(conf['historyLen']) if 'historyLen' in conf else 10
+keys = list(status.keys())
+if len(keys) == maxLen:
+    status.pop(keys[0])
+
+now = datetime.datetime.now()
+status[now.strftime("%Y-%m-%d_%H:%M:%S")] = log
+
+
+
+with open(outFileName,'w') as outFile:
+    json.dump(status,outFile,indent="\t")
     
 
 if errs:
