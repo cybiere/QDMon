@@ -7,7 +7,6 @@ Run the script once to create template conf, fill conf and then run the script a
 ## Command options
 
 - `-v` activates verbose output
-- `-o [filename]` saves qdmon output in json file
 
 # What does it do
 
@@ -15,7 +14,11 @@ Run the script once to create template conf, fill conf and then run the script a
 - Checks if server filesystem is writeable
 - Checks if server responds to HTTP Get / request
 - Checks if IMAP and SMTP services are reachable (using TLS or not)
+- Measures CPU usage in percent
+
+All measures and alerts are stored in a sqlite3 db. Alerts are also sent by email.
 
 # What will it do
 
 - More stuff
+- Web dashboard
