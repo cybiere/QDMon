@@ -54,7 +54,8 @@ with open('config.json','r') as confFile:
 #Open and create DB if first run
 dbConn = sqlite3.connect('qdmon.db')
 c = dbConn.cursor()
-c.execute("CREATE TABLE IF NOT EXISTS servers (name TEXT PRIMARY KEY, cpuLoad TEXT);")
+c.execute("CREATE TABLE IF NOT EXISTS servers (name TEXT PRIMARY KEY);")
+c.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, metric TEXT, value TEXT, FOREIGN KEY(server) REFERENCES servers(name));")
 c.execute("CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, checkpoint TEXT, message TEXT, nextWarn INTEGER, ack INTEGER DEFAULT 0, FOREIGN KEY(server) REFERENCES servers(name));")
 dbConn.commit()
 dbServers = []
@@ -69,12 +70,13 @@ for server in conf["servers"]:
 for server in dbServers:
     if server not in confServers:
         c.execute('DELETE FROM alerts WHERE server=?',(server,))
+        c.execute('DELETE FROM metrics WHERE server=?',(server,))
         c.execute('DELETE FROM servers WHERE name=?',(server,))
 
 #Insert servers added from config
 for server in confServers:
     if server not in dbServers:
-        c.execute('INSERT INTO servers (name,cpuLoad) VALUES (?,"0")',(server,))
+        c.execute('INSERT INTO servers (name) VALUES (?)',(server,))
 dbConn.commit()
 
 if verbose:
@@ -104,7 +106,7 @@ def fsCheck(server):
             print("[OK] FS write ok")
         return (True,"FS write ok")
 
-def cpuLoadCheck(server):
+def cpuLoadMetric(server):
     user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
     key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
     try:
@@ -118,7 +120,6 @@ def cpuLoadCheck(server):
         if verbose :
             print("[ERR] CPU Load error :"+e.output)
         return (False,e.output)
-
     #TODO check val against threshold and return
 
 def httpCheck(server):
@@ -203,22 +204,18 @@ def imapCheck(server):
     return (False,"No IMAP reply")
 
 checks={
-        "basic":[fsCheck,cpuLoadCheck],
+        "basic":[fsCheck],
         "web":[httpCheck],
         "mail":[smtpCheck,imapCheck]
         }
 
-log={}
+metrics=[cpuLoadMetric]
+
 for server in conf['servers']:
     if verbose :
         print(">",server['name'])
-    log[server['name']] = {}
     cats = server['categories'] if 'categories' in server else []
     (success,message) = pingCheck(server)
-    log[server['name']][pingCheck.__name__[:-5]] = {
-            "success":"OK" if success else "KO",
-            "msg":message
-            }
     if success == False:
         c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],pingCheck.__name__))
         alert = c.fetchone()
@@ -228,20 +225,30 @@ for server in conf['servers']:
         continue
     cats.insert(0,"basic")
 
+    for metric in metrics:
+        (success,value)=metric(server)
+        if success:
+            c.execute("DELETE FROM alerts WHERE server=? AND checkpoint=?",(server['name'],metric.__name__))
+            c.execute("SELECT *FROM metrics WHERE server=? AND metric=?",(server['name'],metric.__name__))
+            met = c.fetchone()
+            if met == None:
+                c.execute("INSERT INTO metrics (server,metric,value) VALUES (?,?,?)",(server['name'],metric.__name__,value))
+            else:
+                c.execute("UPDATE metrics SET value=? WHERE server=? and metric=?",(value,server['name'],metric.__name__))
+            dbConn.commit()
+        else:
+            c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],metric.__name__))
+            alert = c.fetchone()
+            if alert == None:
+                c.execute("INSERT INTO alerts (server,checkpoint,message,nextWarn) VALUES (?,?,?,0)",(server['name'],metric.__name__,value))
+            dbConn.commit()
+
     for cat in cats:
         if cat in checks and checks[cat]:
             for check in checks[cat]:
                 (success,message)=check(server)
-                if check.__name__ == "cpuLoadCheck" and success:
-                    c.execute("UPDATE servers SET cpuLoad=? WHERE name=?",(message,server['name']))
-                    dbConn.commit()
-                log[server['name']][check.__name__[:-5]] = {
-                        "success":"OK" if success else "KO",
-                        "msg":message
-                        }
                 if success:
-                    #TODO remove alerts for given check & server
-                    pass
+                    c.execute("DELETE FROM alerts WHERE server=? AND checkpoint=?",(server['name'],check.__name__))
                 else:
                     c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],check.__name__))
                     alert = c.fetchone()
