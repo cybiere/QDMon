@@ -55,8 +55,8 @@ with open('config.json','r') as confFile:
 dbConn = sqlite3.connect('qdmon.db')
 c = dbConn.cursor()
 c.execute("CREATE TABLE IF NOT EXISTS servers (name TEXT PRIMARY KEY);")
-c.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, metric TEXT, value TEXT, FOREIGN KEY(server) REFERENCES servers(name));")
-c.execute("CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, checkpoint TEXT, message TEXT, nextWarn INTEGER, ack INTEGER DEFAULT 0, FOREIGN KEY(server) REFERENCES servers(name));")
+c.execute("CREATE TABLE IF NOT EXISTS metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, metric TEXT, value TEXT, checkTime DATE DEFAULT (datetime('now','localtime')), FOREIGN KEY(server) REFERENCES servers(name));")
+c.execute("CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, server TEXT, checkpoint TEXT, message TEXT, checkTime DATE DEFAULT (datetime('now','localtime')), nextWarn INTEGER, ack INTEGER DEFAULT 0, FOREIGN KEY(server) REFERENCES servers(name));")
 dbConn.commit()
 dbServers = []
 for row in c.execute('SELECT name FROM servers'):
@@ -234,7 +234,7 @@ for server in conf['servers']:
             if met == None:
                 c.execute("INSERT INTO metrics (server,metric,value) VALUES (?,?,?)",(server['name'],metric.__name__,value))
             else:
-                c.execute("UPDATE metrics SET value=? WHERE server=? and metric=?",(value,server['name'],metric.__name__))
+                c.execute("UPDATE metrics SET value=?,checkTime=(datetime('now','localtime')) WHERE server=? and metric=?",(value,server['name'],metric.__name__))
             dbConn.commit()
         else:
             c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],metric.__name__))
