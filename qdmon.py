@@ -25,7 +25,8 @@ if not confPath.is_file():
             "notifyUser":"smtp.user@example.com",
             "notifyPass":"hunter2",
             "notifyServer":"smtp.example.com",
-            "notifyFreq":"5",
+            "notifyFreq":"6",
+            "metricsHistory":"10",
             "servers":[
                 {
                     "name":"ServerName",
@@ -228,12 +229,11 @@ for server in conf['servers']:
         (success,value)=metric(server)
         if success:
             c.execute("DELETE FROM alerts WHERE server=? AND checkpoint=?",(server['name'],metric.__name__))
-            c.execute("SELECT *FROM metrics WHERE server=? AND metric=?",(server['name'],metric.__name__))
+            c.execute("INSERT INTO metrics (server,metric,value) VALUES (?,?,?)",(server['name'],metric.__name__,value))
+            c.execute("SELECT COUNT(*),MIN(id) FROM metrics WHERE server=? AND metric=?",(server['name'],metric.__name__))
             met = c.fetchone()
-            if met == None:
-                c.execute("INSERT INTO metrics (server,metric,value) VALUES (?,?,?)",(server['name'],metric.__name__,value))
-            else:
-                c.execute("UPDATE metrics SET value=?,checkTime=(datetime('now','localtime')) WHERE server=? and metric=?",(value,server['name'],metric.__name__))
+            if met[0] > int(conf['metricsHistory']):
+                c.execute("DELETE FROM metrics WHERE id=?",(met[1],))
             dbConn.commit()
         else:
             c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],metric.__name__))
