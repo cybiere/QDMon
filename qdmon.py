@@ -216,7 +216,10 @@ for server in conf['servers']:
         print(">",server['name'])
     cats = server['categories'] if 'categories' in server else []
     (success,message) = pingCheck(server)
-    if success == False:
+    if success:
+        c.execute("DELETE FROM alerts WHERE server=? AND checkpoint=?",(server['name'],pingCheck.__name__))
+        dbConn.commit()
+    else:
         c.execute("SELECT nextWarn FROM alerts WHERE server=? AND checkpoint=?",(server['name'],pingCheck.__name__))
         alert = c.fetchone()
         if alert == None:
