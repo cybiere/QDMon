@@ -122,6 +122,22 @@ def cpuLoadMetric(server):
         return (False,e.output)
     #TODO check val against threshold and return
 
+def memAvailMetric(server):
+    user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
+    key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
+    try:
+        memAvail = subprocess.check_output(["ssh","-i",key,user+'@'+server['ip'],"free -h | grep 'Mem' | tr -s '[:blank:]' | cut -d ' ' -f 7"])
+        memAvail = memAvail.decode("utf-8")[:-1]
+        if verbose :
+            print("[OK] RAM available :"+memAvail)
+        return (True,memAvail)
+    except subprocess.CalledProcessError as e:
+        if verbose :
+            print("[ERR] RAM available error :"+e.output)
+        return (False,e.output)
+    #TODO check val against threshold and return
+
+
 def httpCheck(server):
     port = server['httpPort'] if 'httpPort' in server else "80"
     try:
@@ -209,7 +225,7 @@ checks={
         "mail":[smtpCheck,imapCheck]
         }
 
-metrics=[cpuLoadMetric]
+metrics=[cpuLoadMetric,memAvailMetric]
 
 for server in conf['servers']:
     if verbose :
