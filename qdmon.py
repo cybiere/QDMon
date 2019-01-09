@@ -126,7 +126,7 @@ def memAvailMetric(server):
     user = server['sshUser'] if 'sshUser' in server else conf['sshUser']
     key = server['rsaKey'] if 'rsaKey' in server else conf['rsaKey']
     try:
-        memAvail = subprocess.check_output(["ssh","-i",key,user+'@'+server['ip'],"free -h | grep 'Mem' | tr -s '[:blank:]' | cut -d ' ' -f 7"])
+        memAvail = subprocess.check_output(["ssh","-i",key,user+'@'+server['ip'],"free -m | grep 'Mem' | tr -s '[:blank:]' | cut -d ' ' -f 7"])
         memAvail = memAvail.decode("utf-8")[:-1]
         if verbose :
             print("[OK] RAM available :"+memAvail)
